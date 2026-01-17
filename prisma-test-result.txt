@@ -1,0 +1,15 @@
+Testing Prisma initialization...
+Initialization Failed:
+Unknown property datasourceUrl provided to PrismaClient constructor.
+Read more at https://pris.ly/d/client-constructor
+{
+  "name": "PrismaClientConstructorValidationError"
+}
+PrismaClientConstructorValidationError: Unknown property datasourceUrl provided to PrismaClient constructor.
+Read more at https://pris.ly/d/client-constructor
+    at al (C:\Users\0x6D617274696E\Desktop\YESBCK\node_modules\@prisma\client\runtime\client.js:66:3832)
+    at new t (C:\Users\0x6D617274696E\Desktop\YESBCK\node_modules\@prisma\client\runtime\client.js:70:1241)
+    at file:///C:/Users/0x6D617274696E/Desktop/YESBCK/test-prisma.js:16:18
+    at ModuleJob.run (node:internal/modules/esm/module_job:377:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:691:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)

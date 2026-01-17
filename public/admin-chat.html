@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Support Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { background-color: #1a1a1a; color: #e5e5e5; font-family: 'Inter', sans-serif; }
+        .chat-bubble { max-width: 75%; padding: 10px 15px; border-radius: 12px; margin-bottom: 8px; }
+        .user-msg { background-color: #374151; align-self: flex-start; border-bottom-left-radius: 2px; }
+        .admin-msg { background-color: #FCD535; color: #000; align-self: flex-end; border-bottom-right-radius: 2px; }
+        .ai-msg { background-color: #10B981; color: #fff; align-self: flex-end; border-bottom-right-radius: 2px; font-style: italic; }
+        .user-item.active { background-color: #374151; border-left: 4px solid #FCD535; }
+    </style>
+</head>
+<body class="h-screen flex overflow-hidden">
+
+    <!-- Sidebar: User List -->
+    <div class="w-1/4 bg-gray-900 border-r border-gray-700 flex flex-col">
+        <div class="p-4 border-b border-gray-700 bg-gray-800">
+            <h1 class="text-xl font-bold text-yellow-400">Support Inboxes</h1>
+            <div class="text-xs text-gray-400 mt-1">Status: <span id="status" class="text-green-500">Connected</span></div>
+        </div>
+        <div id="userList" class="flex-1 overflow-y-auto">
+            <!-- Dynamic User Items -->
+        </div>
+    </div>
+
+    <!-- Main Chat Area -->
+    <div class="w-3/4 flex flex-col bg-gray-800">
+        <!-- Header -->
+        <div class="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-900">
+            <div id="chatHeader">
+                <h2 class="text-lg font-semibold">Select a user to chat</h2>
+            </div>
+            <div id="timerDisplay" class="text-sm font-mono hidden">
+                Auto-reply in: <span id="timerCount" class="text-red-500 font-bold">5s</span>
+            </div>
+        </div>
+
+        <!-- Messages -->
+        <div id="messagesContainer" class="flex-1 p-6 overflow-y-auto flex flex-col gap-2">
+            <!-- Dynamic Messages -->
+            <div class="text-center text-gray-500 mt-20">Waiting for incoming messages...</div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="p-4 bg-gray-900 border-t border-gray-700">
+            <form id="replyForm" class="flex gap-4">
+                <input type="text" id="replyInput" autocomplete="off" placeholder="Type a reply..." 
+                    class="flex-1 bg-gray-700 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-yellow-400 disabled:opacity-50" disabled>
+                <button type="submit" id="sendBtn" 
+                    class="bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-2 px-6 rounded-lg transition disabled:opacity-50" disabled>
+                    Send
+                </button>
+            </form>
+            <div class="text-xs text-gray-500 mt-2 text-center">Replies sent by you cancel the AI auto-response.</div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let activeUserId = null;
+        let activeTimer = null;
+        const users = {}; // userId -> { messages: [], lastActive: Date }
+
+        // --- Socket Events ---
+
+        socket.on('connect', () => {
+            console.log('Connected as Admin');
+            socket.emit('join_admin');
+            document.getElementById('status').innerText = 'Connected';
+            document.getElementById('status').className = 'text-green-500';
+        });
+
+        socket.on('disconnect', () => {
+            document.getElementById('status').innerText = 'Disconnected';
+            document.getElementById('status').className = 'text-red-500';
+        });
+
+        // Incoming User Message
+        socket.on('new_user_message', (data) => {
+            const { userId, content } = data;
+            handleIncomingMessage(userId, content, 'USER');
+            
+            // Start local countdown for UI purposes (Optional, helps admin see urgency)
+            if (activeUserId === userId) {
+                startCountdown(userId);
+            }
+        });
+
+        // AI Auto-Reply
+        socket.on('ai_reply', (data) => {
+            const { userId, content } = data;
+            handleIncomingMessage(userId, content, 'AI');
+            if (activeUserId === userId) {
+                stopCountdown();
+            }
+        });
+
+        // --- Logic ---
+
+        function handleIncomingMessage(userId, content, sender) {
+            // 1. Update Data
+            if (!users[userId]) {
+                users[userId] = { messages: [] };
+                addUserToList(userId);
+            }
+            users[userId].messages.push({ sender, content, time: new Date() });
+
+            // 2. Update UI if active
+            if (activeUserId === userId) {
+                appendMessage(sender, content);
+                scrollToBottom();
+            }
+
+            // 3. Update User List Snippet
+            updateUserListPreview(userId, content);
+        }
+
+        function setActiveUser(userId) {
+            activeUserId = userId;
+            
+            // UI Updates
+            document.getElementById('chatHeader').innerHTML = `<h2 class="text-lg font-semibold">Chatting with User #${userId}</h2>`;
+            document.getElementById('replyInput').disabled = false;
+            document.getElementById('sendBtn').disabled = false;
+            document.getElementById('replyInput').focus();
+
+            // Render Messages
+            const container = document.getElementById('messagesContainer');
+            container.innerHTML = '';
+            users[userId].messages.forEach(msg => appendMessage(msg.sender, msg.content));
+            scrollToBottom();
+
+            // Highlight List Item
+            document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`user-${userId}`).classList.add('active');
+
+            // Reset Timer UI
+            stopCountdown();
+        }
+
+        function appendMessage(sender, content) {
+            const container = document.getElementById('messagesContainer');
+            const div = document.createElement('div');
+            
+            let typeClass = 'user-msg';
+            if (sender === 'ADMIN') typeClass = 'admin-msg';
+            if (sender === 'AI') typeClass = 'ai-msg';
+
+            div.className = `chat-bubble ${typeClass}`;
+            div.innerHTML = `
+                <div class="text-sm">${content}</div>
+                <div class="text-[10px] opacity-70 mt-1 flex justify-end gap-1">
+                    <span>${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    ${sender === 'AI' ? '🤖 AI' : ''}
+                </div>
+            `;
+            container.appendChild(div);
+        }
+
+        function addUserToList(userId) {
+            const list = document.getElementById('userList');
+            const div = document.createElement('div');
+            div.id = `user-${userId}`;
+            div.className = 'user-item p-4 cursor-pointer hover:bg-gray-800 transition border-b border-gray-800';
+            div.onclick = () => setActiveUser(userId);
+            div.innerHTML = `
+                <div class="flex justify-between items-center mb-1">
+                    <span class="font-bold text-white">User #${userId}</span>
+                    <span class="text-xs text-gray-500">Just now</span>
+                </div>
+                <div class="text-sm text-gray-400 truncate" id="preview-${userId}">New conversation...</div>
+            `;
+            list.prepend(div);
+        }
+
+        function updateUserListPreview(userId, content) {
+            const el = document.getElementById(`preview-${userId}`);
+            if (el) el.innerText = content;
+        }
+
+        // --- Reply Handling ---
+
+        document.getElementById('replyForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('replyInput');
+            const content = input.value.trim();
+            if (!content || !activeUserId) return;
+
+            // Send to Backend
+            socket.emit('admin_reply', { userId: activeUserId, content });
+
+            // Optimistic UI Update
+            users[activeUserId].messages.push({ sender: 'ADMIN', content, time: new Date() });
+            appendMessage('ADMIN', content);
+            scrollToBottom();
+            
+            stopCountdown(); // You replied!
+            input.value = '';
+        });
+
+        // --- Utils ---
+
+        function scrollToBottom() {
+            const container = document.getElementById('messagesContainer');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function startCountdown(userId) {
+            stopCountdown();
+            const display = document.getElementById('timerDisplay');
+            const count = document.getElementById('timerCount');
+            display.classList.remove('hidden');
+            
+            let timeLeft = 5;
+            count.innerText = timeLeft + 's';
+
+            activeTimer = setInterval(() => {
+                timeLeft--;
+                count.innerText = timeLeft + 's';
+                if (timeLeft <= 0) stopCountdown();
+            }, 1000);
+        }
+
+        function stopCountdown() {
+            if (activeTimer) clearInterval(activeTimer);
+            document.getElementById('timerDisplay').classList.add('hidden');
+        }
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YESBCK | Admin Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0e11;
+            --card-bg: #1e2329;
+            --text-primary: #eaecef;
+            --text-secondary: #848e9c;
+            --accent: #fcd535;
+            --accent-hover: #e6c229;
+            --danger: #f6465d;
+            --success: #0ecb81;
+            --border: #474d57;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+        }
+
+        .navbar {
+            padding: 1rem 2rem;
+            background-color: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            color: var(--accent);
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .header {
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            background-color: #2b3139;
+            text-align: left;
+            padding: 1rem;
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+        }
+
+        tr:hover {
+            background-color: #2b3139;
+        }
+
+        .status-badge {
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .status-unverified { background: rgba(132, 142, 156, 0.1); color: var(--text-secondary); }
+        .status-pending { background: rgba(252, 213, 53, 0.1); color: var(--accent); }
+        .status-verified { background: rgba(14, 203, 129, 0.1); color: var(--success); }
+        .status-rejected { background: rgba(246, 70, 93, 0.1); color: var(--danger); }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.875rem;
+            transition: 0.2s;
+        }
+
+        .btn-view { background-color: transparent; color: var(--accent); border: 1px solid var(--accent); }
+        .btn-view:hover { background-color: var(--accent); color: var(--bg-color); }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+        }
+
+        .modal-content {
+            background-color: var(--card-bg);
+            max-width: 800px;
+            margin: 3rem auto;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 2rem;
+        }
+
+        .kyc-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-top: 1.5rem;
+        }
+
+        .kyc-info p { margin: 0.5rem 0; color: var(--text-secondary); }
+        .kyc-info span { color: var(--text-primary); font-weight: 500; }
+
+        .kyc-image {
+            width: 100%;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-top: 1rem;
+            cursor: zoom-in;
+        }
+
+        .actions {
+            margin-top: 2rem;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .btn-approve { background-color: var(--success); color: white; width: 100%; }
+        .btn-reject { background-color: var(--danger); color: white; width: 100%; }
+
+        h2, h3 { margin-top: 0; }
+        .close-modal { float: right; cursor: pointer; color: var(--text-secondary); font-size: 1.5rem; }
+    </style>
+</head>
+<body>
+
+<div class="navbar">
+    <div class="logo">YESBCK ADMIN</div>
+    <div style="font-size: 0.8rem; color: var(--text-secondary)">Identity Management System</div>
+</div>
+
+<div class="container">
+    <div class="header">
+        <div>
+            <h2>User Management</h2>
+            <p style="color: var(--text-secondary); margin: 0">Review and verify user KYC submissions</p>
+        </div>
+    </div>
+
+    <div class="card">
+        <table>
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>KYC Status</th>
+                    <th>Full Name</th>
+                    <th>Nationality</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="userTableBody">
+                <!-- Data populated via JS -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- KYC Modal -->
+<div id="kycModal" class="modal">
+    <div class="modal-content">
+        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <h2 id="modalEmail">User Detail</h2>
+        
+        <div id="kycData" style="display: none;">
+            <div class="kyc-grid">
+                <div class="kyc-info">
+                    <h3>Personal Info</h3>
+                    <p>First Name: <span id="infoFirstName"></span></p>
+                    <p>Last Name: <span id="infoLastName"></span></p>
+                    <p>DOB: <span id="infoDob"></span></p>
+                    <p>Nationality: <span id="infoNationality"></span></p>
+                    <p>ID Type: <span id="infoIdType"></span></p>
+                </div>
+                <div>
+                   <h3>Selfie</h3>
+                   <img id="imgSelfie" class="kyc-image" alt="Selfie">
+                </div>
+            </div>
+
+            <div class="kyc-grid" style="margin-top: 2rem;">
+                <div>
+                    <h3>ID Front</h3>
+                    <img id="imgFront" class="kyc-image" alt="ID Front">
+                </div>
+                <div>
+                    <h3>ID Back</h3>
+                    <img id="imgBack" class="kyc-image" alt="ID Back">
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="btn btn-approve" onclick="verifyKyc('VERIFIED')">Approve Verification</button>
+                <button class="btn btn-reject" onclick="verifyKyc('REJECTED')">Reject Application</button>
+            </div>
+        </div>
+
+        <div id="noKyc" style="display: none; text-align: center; padding: 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem;">
+             <p style="color: var(--text-secondary)">This user has not submitted any KYC documents yet.</p>
+        </div>
+
+        <div style="margin-top: 3rem; border-top: 1px solid var(--border); padding-top: 2rem;">
+            <h3>Balance Management</h3>
+            <div id="balanceList" style="margin-bottom: 1.5rem; background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px;">
+                <!-- Current balances will go here -->
+            </div>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr 0.5fr; gap: 1rem; align-items: end;">
+                <div>
+                    <label style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Select Coin</label>
+                    <select id="adjCoin" style="width: 100%; padding: 0.75rem; background: #2b3139; border: 1px solid var(--border); color: white; border-radius: 4px;">
+                        <option value="ETH">ETH</option>
+                        <option value="BTC">BTC</option>
+                        <option value="USDT">USDT</option>
+                        <option value="BNB">BNB</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.5rem;">Amount to Add</label>
+                    <input type="number" id="adjAmount" step="0.00000001" placeholder="0.00" style="width: 100%; box-sizing: border-box; padding: 0.75rem; background: #2b3139; border: 1px solid var(--border); color: white; border-radius: 4px;">
+                </div>
+                <button class="btn btn-view" style="width: 100%; padding: 0.75rem;" onclick="updateBalance()">Add Funds</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let users = [];
+    let selectedUserId = null;
+
+    async function fetchUsers() {
+        try {
+            const resp = await fetch('/auth/admin/users');
+            users = await resp.json();
+            renderTable();
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    function renderTable() {
+        const body = document.getElementById('userTableBody');
+        body.innerHTML = users.map(user => `
+            <tr>
+                <td>${user.email}</td>
+                <td><span class="status-badge status-${user.kycStatus.toLowerCase()}">${user.kycStatus}</span></td>
+                <td>${user.kycRecord ? user.kycRecord.firstName + ' ' + user.kycRecord.lastName : 'N/A'}</td>
+                <td>${user.kycRecord ? user.kycRecord.nationality : 'N/A'}</td>
+                <td>
+                    <button class="btn btn-view" onclick="openKyc(${user.id})">Review KYC</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function openKyc(id) {
+        const user = users.find(u => u.id === id);
+        selectedUserId = id;
+        document.getElementById('modalEmail').innerText = user.email;
+        
+        if (user.kycRecord) {
+            document.getElementById('kycData').style.display = 'block';
+            document.getElementById('noKyc').style.display = 'none';
+            document.getElementById('infoFirstName').innerText = user.kycRecord.firstName;
+            document.getElementById('infoLastName').innerText = user.kycRecord.lastName;
+            document.getElementById('infoDob').innerText = user.kycRecord.dob;
+            document.getElementById('infoNationality').innerText = user.kycRecord.nationality;
+            document.getElementById('infoIdType').innerText = user.kycRecord.idType;
+            
+            // Note: In local dev, Mulder paths might need fixing for frontend display
+            // We serve /uploads static route
+            document.getElementById('imgSelfie').src = '/' + user.kycRecord.selfiePath.replace(/\\/g, '/');
+            document.getElementById('imgFront').src = '/' + user.kycRecord.idFrontPath.replace(/\\/g, '/');
+            document.getElementById('imgBack').src = '/' + user.kycRecord.idBackPath.replace(/\\/g, '/');
+        } else {
+            document.getElementById('kycData').style.display = 'none';
+            document.getElementById('noKyc').style.display = 'block';
+        }
+
+        renderBalances(user);
+        document.getElementById('kycModal').style.display = 'block';
+    }
+
+    function renderBalances(user) {
+        const bl = document.getElementById('balanceList');
+        if (user.balances && user.balances.length > 0) {
+            bl.innerHTML = user.balances.map(b => `
+                <div style="display: flex; justify-content: space-between; margin: 0.3rem 0; font-size: 0.9rem;">
+                    <span style="color: var(--text-secondary)">${b.coin}</span>
+                    <span style="font-weight: 500;">${b.available.toFixed(8)}</span>
+                </div>
+            `).join('');
+        } else {
+            bl.innerHTML = '<p style="color: var(--text-secondary); margin: 0; font-size: 0.8rem;">No active balances</p>';
+        }
+    }
+
+    async function updateBalance() {
+        const coin = document.getElementById('adjCoin').value;
+        const amount = document.getElementById('adjAmount').value;
+
+        if (!amount || parseFloat(amount) <= 0) {
+            alert('Please enter a valid amount');
+            return;
+        }
+
+        try {
+            const resp = await fetch('/auth/admin/update-balance', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: selectedUserId, coin, amount })
+            });
+
+            if (resp.ok) {
+                alert('Balance updated successfully');
+                document.getElementById('adjAmount').value = '';
+                // Refresh data
+                const userResp = await fetch('/auth/admin/users');
+                users = await userResp.json();
+                const updatedUser = users.find(u => u.id === selectedUserId);
+                renderBalances(updatedUser);
+                renderTable();
+            } else {
+                alert('Failed to update balance');
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function verifyKyc(status) {
+        if (!confirm(`Are you sure you want to ${status} this user?`)) return;
+
+        try {
+            const resp = await fetch('/auth/admin/verify-kyc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: selectedUserId, status })
+            });
+
+            if (resp.ok) {
+                alert(`User ${status} successfully`);
+                closeModal();
+                fetchUsers();
+            } else {
+                alert('Failed to update status');
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('kycModal').style.display = 'none';
+    }
+
+    // Initial load
+    fetchUsers();
+</script>
+
+</body>
+</html>
