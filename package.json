@@ -12,7 +12,6 @@
   "author": "",
   "dependencies": {
     "@libsql/client": "^0.17.0",
-    "@prisma/adapter-libsql": "^7.2.0",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "bcrypt": "^6.0.0",
@@ -28,10 +27,8 @@
     "pg": "^8.17.1",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
+    "sqlite3": "^5.1.7",
     "stripe": "^20.1.2",
     "ws": "^8.19.0"
-  },
-  "devDependencies": {
-    "prisma": "^7.2.0"
   }
 }

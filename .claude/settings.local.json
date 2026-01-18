@@ -6,7 +6,10 @@
       "WebSearch",
       "Bash(npm start)",
       "Bash(timeout /t 10 /nobreak)",
-      "Bash(findstr:*)"
+      "Bash(findstr:*)",
+      "Bash(pkill:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)"
     ],
     "deny": [],
     "ask": []

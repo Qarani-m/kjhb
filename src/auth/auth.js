@@ -4,7 +4,7 @@ import jwt from "jsonwebtoken";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { prisma } from "../lib/prisma.js";
+import { query, queryOne, execute, transaction } from "../lib/db.js";
 import { sendOtpEmail } from "../lib/emailService.js";
 
 const router = express.Router();
@@ -48,24 +48,29 @@ router.post("/register", async (req, res) => {
   const { email, password } = req.body;
   try {
     const passwordHash = await bcrypt.hash(password, 10);
-    const user = await prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        balances: {
-          create: { coin: "ETH", available: 0, locked: 0 },
-        },
-      },
-    });
+
+    // Insert user
+    const userResult = await execute(
+      'INSERT INTO "User" ("email", "passwordHash", "createdAt", "kycStatus") VALUES ($1, $2, NOW(), $3) RETURNING *',
+      [email, passwordHash, 'UNVERIFIED']
+    );
+    const user = userResult.rows?.[0] || { id: userResult.insertId };
+
+    // Create initial ETH balance
+    await execute(
+      'INSERT INTO "Balance" ("userId", "coin", "available", "locked") VALUES ($1, $2, $3, $4)',
+      [user.id, 'ETH', 0, 0]
+    );
 
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    // Save to DB
-    await prisma.otp.create({
-      data: { email, otp: otpCode, expiresAt },
-    });
+    // Save OTP to DB
+    await execute(
+      'INSERT INTO "Otp" ("email", "otp", "expiresAt", "createdAt") VALUES ($1, $2, $3, NOW())',
+      [email, otpCode, expiresAt]
+    );
 
     try {
       await sendOtpEmail(email, otpCode);
@@ -75,6 +80,7 @@ router.post("/register", async (req, res) => {
       res.status(500).json({ error: "Failed to send verification email" });
     }
   } catch (error) {
+    console.error("Registration error:", error);
     res.status(400).json({ error: "Email already exists or invalid data" });
   }
 });
@@ -82,16 +88,17 @@ router.post("/register", async (req, res) => {
 // Login (Step 1: Password Check -> Send OTP)
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await queryOne('SELECT * FROM "User" WHERE "email" = $1', [email]);
 
   if (user && (await bcrypt.compare(password, user.passwordHash))) {
     // Generate 6-digit OTP
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    await prisma.otp.create({
-      data: { email, otp: otpCode, expiresAt },
-    });
+    await execute(
+      'INSERT INTO "Otp" ("email", "otp", "expiresAt", "createdAt") VALUES ($1, $2, $3, NOW())',
+      [email, otpCode, expiresAt]
+    );
 
     try {
       await sendOtpEmail(email, otpCode, "Login");
@@ -104,19 +111,30 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// ... verify-otp and verify-identity routes ...
-
 // Admin: Get all users
 router.get("/admin/users", async (req, res) => {
   try {
-    const users = await prisma.user.findMany({
-      include: {
-        kycRecord: true,
-        balances: true,
-      },
-    });
-    res.json(users);
+    const users = await query(`
+      SELECT
+        u.*,
+        json_agg(DISTINCT jsonb_build_object('id', b.id, 'coin', b.coin, 'available', b.available, 'locked', b.locked)) FILTER (WHERE b.id IS NOT NULL) as balances,
+        json_agg(DISTINCT jsonb_build_object('id', k.id, 'firstName', k.firstName, 'lastName', k.lastName, 'dob', k.dob, 'nationality', k.nationality, 'idType', k.idType)) FILTER (WHERE k.id IS NOT NULL) as "kycRecords"
+      FROM "User" u
+      LEFT JOIN "Balance" b ON u.id = b."userId"
+      LEFT JOIN "KycRecord" k ON u.id = k."userId"
+      GROUP BY u.id
+    `);
+
+    // Format the response
+    const formattedUsers = users.map(user => ({
+      ...user,
+      balances: user.balances || [],
+      kycRecord: user.kycRecords?.[0] || null,
+    }));
+
+    res.json(formattedUsers);
   } catch (error) {
+    console.error("Failed to fetch users:", error);
     res.status(500).json({ error: "Failed to fetch users" });
   }
 });
@@ -130,10 +148,10 @@ router.post("/admin/verify-kyc", async (req, res) => {
   }
 
   try {
-    await prisma.user.update({
-      where: { id: parseInt(userId) },
-      data: { kycStatus: status },
-    });
+    await execute(
+      'UPDATE "User" SET "kycStatus" = $1 WHERE "id" = $2',
+      [status, parseInt(userId)]
+    );
     res.json({ message: `User KYC status updated to ${status}` });
   } catch (error) {
     res.status(500).json({ error: "Failed to update KYC status" });
@@ -149,23 +167,34 @@ router.post("/admin/update-balance", async (req, res) => {
   }
 
   try {
-    const balance = await prisma.balance.upsert({
-      where: {
-        userId_coin: {
-          userId: parseInt(userId),
-          coin: coin.toUpperCase(),
-        },
-      },
-      update: {
-        available: { increment: parseFloat(amount) },
-      },
-      create: {
-        userId: parseInt(userId),
-        coin: coin.toUpperCase(),
-        available: parseFloat(amount),
-        locked: 0,
-      },
-    });
+    const userIdInt = parseInt(userId);
+    const coinUpper = coin.toUpperCase();
+    const amountFloat = parseFloat(amount);
+
+    // Check if balance exists
+    const existing = await queryOne(
+      'SELECT * FROM "Balance" WHERE "userId" = $1 AND "coin" = $2',
+      [userIdInt, coinUpper]
+    );
+
+    if (existing) {
+      // Update existing balance
+      await execute(
+        'UPDATE "Balance" SET "available" = "available" + $1 WHERE "userId" = $2 AND "coin" = $3',
+        [amountFloat, userIdInt, coinUpper]
+      );
+    } else {
+      // Create new balance
+      await execute(
+        'INSERT INTO "Balance" ("userId", "coin", "available", "locked") VALUES ($1, $2, $3, 0)',
+        [userIdInt, coinUpper, amountFloat]
+      );
+    }
+
+    const balance = await queryOne(
+      'SELECT * FROM "Balance" WHERE "userId" = $1 AND "coin" = $2',
+      [userIdInt, coinUpper]
+    );
 
     res.json({ message: "Balance updated successfully", balance });
   } catch (error) {
@@ -178,23 +207,20 @@ router.post("/admin/update-balance", async (req, res) => {
 router.post("/verify-otp", async (req, res) => {
   const { email, otp } = req.body;
 
-  const validOtp = await prisma.otp.findFirst({
-    where: {
-      email,
-      otp,
-      expiresAt: { gt: new Date() },
-    },
-  });
+  const validOtp = await queryOne(
+    'SELECT * FROM "Otp" WHERE "email" = $1 AND "otp" = $2 AND "expiresAt" > $3 ORDER BY "createdAt" DESC LIMIT 1',
+    [email, otp, new Date()]
+  );
 
   if (!validOtp) {
     return res.status(401).json({ error: "Invalid or expired code" });
   }
 
   // Find user
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await queryOne('SELECT * FROM "User" WHERE "email" = $1', [email]);
 
   // Delete OTP after verification
-  await prisma.otp.delete({ where: { id: validOtp.id } });
+  await execute('DELETE FROM "Otp" WHERE "id" = $1', [validOtp.id]);
 
   const token = jwt.sign({ userId: user.id }, SECRET, { expiresIn: "24h" });
   res.json({ token, userId: user.id });
@@ -229,36 +255,53 @@ router.post(
     }
 
     try {
-      await prisma.$transaction([
-        prisma.kycRecord.upsert({
-          where: { userId: req.userId },
-          update: {
-            firstName,
-            lastName,
-            dob,
-            nationality,
-            idType,
-            idFrontPath: files.idFront[0].path,
-            idBackPath: files.idBack[0].path,
-            selfiePath: files.selfie[0].path,
-          },
-          create: {
-            userId: req.userId,
-            firstName,
-            lastName,
-            dob,
-            nationality,
-            idType,
-            idFrontPath: files.idFront[0].path,
-            idBackPath: files.idBack[0].path,
-            selfiePath: files.selfie[0].path,
-          },
-        }),
-        prisma.user.update({
-          where: { id: req.userId },
-          data: { kycStatus: "PENDING" },
-        }),
-      ]);
+      await transaction(async (client) => {
+        // Check if KYC record exists
+        const existing = await queryOne(
+          'SELECT * FROM "KycRecord" WHERE "userId" = $1',
+          [req.userId]
+        );
+
+        if (existing) {
+          // Update existing KYC record
+          await execute(
+            'UPDATE "KycRecord" SET "firstName" = $1, "lastName" = $2, "dob" = $3, "nationality" = $4, "idType" = $5, "idFrontPath" = $6, "idBackPath" = $7, "selfiePath" = $8, "updatedAt" = NOW() WHERE "userId" = $9',
+            [
+              firstName,
+              lastName,
+              dob,
+              nationality,
+              idType,
+              files.idFront[0].path,
+              files.idBack[0].path,
+              files.selfie[0].path,
+              req.userId,
+            ]
+          );
+        } else {
+          // Create new KYC record
+          await execute(
+            'INSERT INTO "KycRecord" ("userId", "firstName", "lastName", "dob", "nationality", "idType", "idFrontPath", "idBackPath", "selfiePath", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())',
+            [
+              req.userId,
+              firstName,
+              lastName,
+              dob,
+              nationality,
+              idType,
+              files.idFront[0].path,
+              files.idBack[0].path,
+              files.selfie[0].path,
+            ]
+          );
+        }
+
+        // Update user KYC status
+        await execute(
+          'UPDATE "User" SET "kycStatus" = $1 WHERE "id" = $2',
+          ['PENDING', req.userId]
+        );
+      });
 
       res.json({ message: "KYC submission successful, verification pending" });
     } catch (error) {

@@ -7,7 +7,11 @@ import { Server } from "socket.io";
 import cors from "cors";
 import path from "path";
 
-import { prisma } from "./lib/prisma.js";
+import { query, queryOne, execute, transaction } from "./lib/db.js";
+import { initializeSchema } from "./lib/init-db.js";
+
+// Initialize database schema
+await initializeSchema();
 import authRouter, { authMiddleware } from "./auth/auth.js";
 import { deriveDepositAddress } from "./wallets/walletService.js";
 import "./blockchain/worker.js"; // Start the confirmation worker
@@ -69,21 +73,21 @@ app.use("/spot", spotRouter);
 
 // Get User Profile & Balances
 app.get("/profile", authMiddleware, async (req, res) => {
-  const user = await prisma.user.findUnique({
-    where: { id: req.userId },
-    include: {
-      balances: true,
-      deposits: { orderBy: { createdAt: "desc" }, take: 10 },
-      kycRecord: true,
-    },
-  });
+  const user = await queryOne('SELECT * FROM "User" WHERE "id" = $1', [req.userId]);
+  const balances = await query('SELECT * FROM "Balance" WHERE "userId" = $1', [req.userId]);
+  const deposits = await query(
+    'SELECT * FROM "Deposit" WHERE "userId" = $1 ORDER BY "createdAt" DESC LIMIT 10',
+    [req.userId]
+  );
+  const kycRecord = await queryOne('SELECT * FROM "KycRecord" WHERE "userId" = $1', [req.userId]);
+
   res.json({
     email: user.email,
     id: user.id,
     kycStatus: user.kycStatus,
-    balances: user.balances,
-    deposits: user.deposits,
-    kycRecord: user.kycRecord,
+    balances,
+    deposits,
+    kycRecord,
   });
 });
 
@@ -91,32 +95,19 @@ app.get("/profile", authMiddleware, async (req, res) => {
 app.get("/deposit-address", authMiddleware, async (req, res) => {
   const { coin = "ETH", network = "ETH" } = req.query;
   try {
-    let wallet = await prisma.wallet.findUnique({
-      where: {
-        userId_coin_network: {
-          userId: req.userId,
-          coin,
-          network,
-        },
-      },
-    });
+    let wallet = await queryOne(
+      'SELECT * FROM "Wallet" WHERE "userId" = $1 AND "coin" = $2 AND "network" = $3',
+      [req.userId, coin, network]
+    );
 
     if (!wallet) {
-      // For EVM, we use the same address across networks
-      const walletCount = await prisma.wallet.count({
-        where: { userId: req.userId },
-      });
-      const address = deriveDepositAddress(process.env.MNEMONIC, req.userId); // Simplified delegation
+      const address = deriveDepositAddress(process.env.MNEMONIC, req.userId);
 
-      wallet = await prisma.wallet.create({
-        data: {
-          userId: req.userId,
-          coin,
-          network,
-          address,
-          derivationIndex: req.userId,
-        },
-      });
+      const result = await execute(
+        'INSERT INTO "Wallet" ("userId", "coin", "network", "address", "derivationIndex") VALUES ($1, $2, $3, $4, $5) RETURNING *',
+        [req.userId, coin, network, address, req.userId]
+      );
+      wallet = result.rows?.[0] || { address };
     }
 
     res.json({ address: wallet.address });
@@ -138,53 +129,48 @@ app.post("/withdraw", authMiddleware, async (req, res) => {
 
   try {
     // 1. Check Balance
-    const balance = await prisma.balance.findUnique({
-      where: { userId_coin: { userId: req.userId, coin } },
-    });
+    const balance = await queryOne(
+      'SELECT * FROM "Balance" WHERE "userId" = $1 AND "coin" = $2',
+      [req.userId, coin]
+    );
 
     if (!balance || balance.available < amount) {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
     // 2. Local Ledger Update (Deduct immediately)
-    await prisma.balance.update({
-      where: { id: balance.id },
-      data: { available: { decrement: amount } },
-    });
+    await execute(
+      'UPDATE "Balance" SET "available" = "available" - $1 WHERE "id" = $2',
+      [amount, balance.id]
+    );
 
     // 3. Create Withdrawal Record
-    const withdrawal = await prisma.withdrawal.create({
-      data: {
-        userId: req.userId,
-        coin,
-        network,
-        amount,
-        toAddress: address,
-        status: "PENDING",
-      },
-    });
+    const withdrawalResult = await execute(
+      'INSERT INTO "Withdrawal" ("userId", "coin", "network", "amount", "toAddress", "status", "createdAt", "updatedAt") VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW()) RETURNING *',
+      [req.userId, coin, network, amount, address, "PENDING"]
+    );
+    const withdrawal = withdrawalResult.rows?.[0] || { id: withdrawalResult.insertId };
 
     // 4. Attempt On-Chain Transaction (Async)
-    // In a real app, this might be handled by a queue
     sendCrypto(process.env.MNEMONIC, req.userId, address, amount)
       .then(async (txHash) => {
-        await prisma.withdrawal.update({
-          where: { id: withdrawal.id },
-          data: { txHash, status: "COMPLETED" },
-        });
+        await execute(
+          'UPDATE "Withdrawal" SET "txHash" = $1, "status" = $2, "updatedAt" = NOW() WHERE "id" = $3',
+          [txHash, "COMPLETED", withdrawal.id]
+        );
         console.log(`Withdrawal ${withdrawal.id} successful: ${txHash}`);
       })
       .catch(async (err) => {
         console.error(`Withdrawal ${withdrawal.id} failed:`, err);
         // Refund the user on failure
-        await prisma.balance.update({
-          where: { id: balance.id },
-          data: { available: { increment: amount } },
-        });
-        await prisma.withdrawal.update({
-          where: { id: withdrawal.id },
-          data: { status: "FAILED" },
-        });
+        await execute(
+          'UPDATE "Balance" SET "available" = "available" + $1 WHERE "id" = $2',
+          [amount, balance.id]
+        );
+        await execute(
+          'UPDATE "Withdrawal" SET "status" = $1, "updatedAt" = NOW() WHERE "id" = $2',
+          ["FAILED", withdrawal.id]
+        );
       });
 
     res.json({ message: "Withdrawal initiated", withdrawalId: withdrawal.id });
