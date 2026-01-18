@@ -21,13 +21,11 @@ services:
     environment:
       - PORT=3000
       - DATABASE_URL=postgresql://root:root@db:5432/crypto
-      - SQLITE_URL=file:./data/database.db
       - JWT_SECRET=super-secret-key-12345
       - MNEMONIC=test test test test test test test test test test test junk
     depends_on:
       - db
     volumes:
-      - ./data:/app/data
       - ./uploads:/app/uploads
 
 volumes:

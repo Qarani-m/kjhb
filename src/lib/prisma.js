@@ -16,13 +16,19 @@ async function getPrisma() {
   while (retryCount < maxRetries) {
     try {
       console.log(
-        `Attempting to connect to PostgreSQL (Attempt ${
+        `Attempting to connect to Neon PostgreSQL (Attempt ${
           retryCount + 1
         }/${maxRetries})...`
       );
+
+      if (!process.env.DATABASE_URL) {
+        throw new Error("DATABASE_URL environment variable is not set");
+      }
+
       const pool = new pg.Pool({
         connectionString: process.env.DATABASE_URL,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
+        max: 10,
       });
 
       // Test the actual connection
@@ -32,38 +38,24 @@ async function getPrisma() {
       const pgClient = new PrismaClient({ adapter });
 
       await pgClient.$connect();
-      console.log("Connected to PostgreSQL successfully.");
+      console.log("Connected to Neon PostgreSQL successfully.");
       prismaInstance = pgClient;
       return prismaInstance;
     } catch (error) {
       retryCount++;
-      console.error(`PostgreSQL connection failed: ${error.message}`);
+      console.error(`Neon PostgreSQL connection failed: ${error.message}`);
       if (retryCount < maxRetries) {
-        console.log(`Retrying in 2 seconds...`);
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const delay = 2000 * retryCount; // Exponential backoff
+        console.log(`Retrying in ${delay / 1000} seconds...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
 
-  console.warn(
-    "All PostgreSQL connection attempts failed. Falling back to SQLite..."
+  console.error(
+    "FATAL: Failed to connect to Neon PostgreSQL after all retries."
   );
-  try {
-    // Override DATABASE_URL for SQLite
-    process.env.DATABASE_URL = process.env.SQLITE_DATABASE_URL || "file:./database.db";
-
-    const sqliteClient = new PrismaClient();
-    await sqliteClient.$connect();
-    console.log("Connected to SQLite successfully.");
-    prismaInstance = sqliteClient;
-    return prismaInstance;
-  } catch (error) {
-    console.error(
-      "FATAL: Failed to connect to fallback SQLite database.",
-      error.message
-    );
-    throw error;
-  }
+  throw new Error("Unable to connect to Neon PostgreSQL database");
 }
 
 export const prisma = await getPrisma();
