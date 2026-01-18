@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaLibSql } from "@prisma/adapter-libsql";
 import pg from "pg";
 import dotenv from "dotenv";
 
@@ -49,8 +50,7 @@ async function getPrisma() {
   );
 
   try {
-    // Attempt to initialize a standard PrismaClient pointing to the SQLite URL.
-    // In a production environment, we use a dedicated SQLite client generated from prisma/sqlite.prisma.
+    // Attempt to initialize a SQLite client using libSQL adapter
     let SqlitePrismaClient;
     try {
       // Try to import the generated SQLite client
@@ -66,9 +66,13 @@ async function getPrisma() {
       SqlitePrismaClient = PrismaClient;
     }
 
-    // In Prisma 7, datasourceUrl is not a valid parameter
-    // The connection is configured in prisma.config.js
-    const sqliteClient = new SqlitePrismaClient();
+    // Create libSQL adapter with config
+    const adapter = new PrismaLibSql({
+      url: process.env.SQLITE_DATABASE_URL || "file:./dev.db",
+    });
+
+    // Create Prisma client with adapter
+    const sqliteClient = new SqlitePrismaClient({ adapter });
 
     await sqliteClient.$connect();
     console.log("Connected to SQLite successfully.");

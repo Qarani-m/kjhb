@@ -4,7 +4,9 @@
       "Bash(npx prisma generate:*)",
       "WebFetch(domain:www.prisma.io)",
       "WebSearch",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "Bash(timeout /t 10 /nobreak)",
+      "Bash(findstr:*)"
     ],
     "deny": [],
     "ask": []
