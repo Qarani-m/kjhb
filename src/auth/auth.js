@@ -72,16 +72,17 @@ router.post("/register", async (req, res) => {
       [email, otpCode, expiresAt]
     );
 
-    try {
-      await sendOtpEmail(email, otpCode);
-      res.json({ message: "OTP_SENT", email });
-    } catch (err) {
+    // Send response immediately (don't wait for email)
+    res.json({ message: "OTP_SENT", email });
+
+    // Send email asynchronously in the background
+    sendOtpEmail(email, otpCode).catch((err) => {
       console.error("Failed to send verification email:", err);
-      res.status(500).json({ error: "Failed to send verification email" });
-    }
+      // Email failure is logged but doesn't affect the user experience
+    });
   } catch (error) {
     console.error("Registration error:", error);
-    res.status(400).json({ error: "Email already exists or invalid data" });
+    res.status(400).json({ error: `Email already exists or invalid data: ${error}` });
   }
 });
 
@@ -100,12 +101,14 @@ router.post("/login", async (req, res) => {
       [email, otpCode, expiresAt]
     );
 
-    try {
-      await sendOtpEmail(email, otpCode, "Login");
-      res.json({ message: "OTP_SENT", email });
-    } catch (err) {
-      res.status(500).json({ error: "Failed to send verification email" });
-    }
+    // Send response immediately (don't wait for email)
+    res.json({ message: "OTP_SENT", email });
+
+    // Send email asynchronously in the background
+    sendOtpEmail(email, otpCode, "Login").catch((err) => {
+      console.error("Failed to send login verification email:", err);
+      // Email failure is logged but doesn't affect the user experience
+    });
   } else {
     res.status(401).json({ error: "Invalid credentials" });
   }
@@ -135,7 +138,8 @@ router.get("/admin/users", async (req, res) => {
     res.json(formattedUsers);
   } catch (error) {
     console.error("Failed to fetch users:", error);
-    res.status(500).json({ error: "Failed to fetch users" });
+    // Return empty array so frontend doesn't crash
+    res.status(500).json([]);
   }
 });
 

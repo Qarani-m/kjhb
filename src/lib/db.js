@@ -54,18 +54,27 @@ async function initializeDatabase() {
 
 // Query function for PostgreSQL
 export async function query(sql, params = []) {
+  if (!db) {
+    throw new Error("Database not initialized");
+  }
   const result = await db.query(sql, params);
   return result.rows;
 }
 
 // Get single row
 export async function queryOne(sql, params = []) {
+  if (!db) {
+    throw new Error("Database not initialized");
+  }
   const result = await db.query(sql, params);
   return result.rows[0] || null;
 }
 
 // Execute a query (INSERT/UPDATE/DELETE) and return metadata
 export async function execute(sql, params = []) {
+  if (!db) {
+    throw new Error("Database not initialized");
+  }
   const result = await db.query(sql, params);
   return {
     rowCount: result.rowCount,

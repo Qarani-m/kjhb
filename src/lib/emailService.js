@@ -1,13 +1,7 @@
-import nodemailer from "nodemailer";
+import { MailerSend, EmailParams, Sender, Recipient } from "mailersend";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.DEV_MAIL_HOST,
-  port: parseInt(process.env.DEV_MAIL_PORT || "587"),
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.DEV_MAIL_USERNAME,
-    pass: process.env.DEV_MAIL_PASSWORD,
-  },
+const mailerSend = new MailerSend({
+  apiKey: process.env.MAILERSEND_API_KEY,
 });
 
 /**
@@ -17,11 +11,13 @@ const transporter = nodemailer.createTransport({
  * @param {string} type - 'Login' or 'Registration'
  */
 export const sendOtpEmail = async (email, otp, type = "Login") => {
-  const mailOptions = {
-    from: `"YESBCK Support" <${process.env.DEV_MAIL_USERNAME}>`,
-    to: email,
-    subject: `[YESBCK] ${type} Verification Code`,
-    html: `
+  const sentFrom = new Sender(
+    process.env.MAILERSEND_SENDER_EMAIL,
+    process.env.MAILERSEND_SENDER_NAME || "YESBCK Support",
+  );
+  const recipients = [new Recipient(email, "User")];
+
+  const htmlContent = `
       <div style="background-color: #f5f5f5; padding: 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
         <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
           <div style="background-color: #1e2329; padding: 20px; text-align: center;">
@@ -44,14 +40,21 @@ export const sendOtpEmail = async (email, otp, type = "Login") => {
           </div>
         </div>
       </div>
-    `,
-  };
+    `;
+
+  const emailParams = new EmailParams()
+    .setFrom(sentFrom)
+    .setTo(recipients)
+    .setSubject(`[YESBCK] ${type} Verification Code`)
+    .setHtml(htmlContent)
+    .setText(`${type} Verification Code: ${otp}`);
 
   try {
-    await transporter.sendMail(mailOptions);
-    console.log(`OTP sent to ${email}`);
+    await mailerSend.email.send(emailParams);
+    console.log(`✅ OTP sent to ${email} via MailerSend`);
   } catch (error) {
-    console.error("Failed to send email:", error);
+    console.error("❌ Failed to send email via MailerSend:", error);
+    // Fallback or error handled by the caller
     throw new Error("Could not send verification email");
   }
 };

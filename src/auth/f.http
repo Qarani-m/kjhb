@@ -1,0 +1,8 @@
+### Register a new user
+POST https://crypto-exchange-bc-v1-0-0.onrender.com/register
+Content-Type: application/json
+
+{
+  "email": "testuser@example.com",
+  "password": "StrongPassword123!"
+}

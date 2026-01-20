@@ -1,0 +1,156 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "library"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url = "postgresql://neondb_owner:npg_FUvQyuo8M9Kc@ep-sparkling-dust-a4zga52i-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+}
+
+model User {
+  id                Int           @id @default(autoincrement())
+  email             String        @unique
+  passwordHash      String
+  createdAt         DateTime      @default(now())
+  wallets           Wallet[]
+  balances          Balance[]
+  deposits          Deposit[]
+  withdrawals       Withdrawal[]
+  sentTransfers     Transfer[]    @relation("SentTransfers")
+  receivedTransfers Transfer[]    @relation("ReceivedTransfers")
+  kycStatus         String        @default("UNVERIFIED")
+  kycRecord         KycRecord?
+  positions         Position[]
+  stripeCustomerId  String?       @unique
+  swaps             Swap[]
+  chatMessages      ChatMessage[]
+}
+
+model ChatMessage {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id])
+  guestId   String?
+  sender    String // USER, ADMIN, AI
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model Swap {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id])
+  fromCoin   String
+  toCoin     String
+  fromAmount Float
+  toAmount   Float
+  rate       Float
+  createdAt  DateTime @default(now())
+}
+
+model Position {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  user       User     @relation(fields: [userId], references: [id])
+  symbol     String   @default("BTCUSDT")
+  side       String // BUY or SELL
+  type       String   @default("MARKET")
+  marginMode String   @default("CROSS")
+  entryPrice Float
+  size       Float
+  marginUsed Float
+  leverage   Int
+  createdAt  DateTime @default(now())
+}
+
+model Wallet {
+  id              Int    @id @default(autoincrement())
+  userId          Int
+  user            User   @relation(fields: [userId], references: [id])
+  coin            String
+  network         String
+  address         String @unique
+  derivationIndex Int
+
+  @@unique([userId, coin, network])
+}
+
+model Balance {
+  id        Int    @id @default(autoincrement())
+  userId    Int
+  user      User   @relation(fields: [userId], references: [id])
+  coin      String
+  available Float  @default(0)
+  locked    Float  @default(0)
+
+  @@unique([userId, coin])
+}
+
+model Deposit {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id])
+  txHash        String   @unique
+  network       String
+  coin          String
+  amount        Float
+  confirmations Int      @default(0)
+  status        String   @default("DETECTED")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Withdrawal {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  coin      String
+  network   String
+  amount    Float
+  toAddress String
+  txHash    String?  @unique
+  status    String   @default("PENDING") // PENDING, COMPLETED, FAILED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Transfer {
+  id         Int      @id @default(autoincrement())
+  senderId   Int
+  sender     User     @relation("SentTransfers", fields: [senderId], references: [id])
+  receiverId Int
+  receiver   User     @relation("ReceivedTransfers", fields: [receiverId], references: [id])
+  coin       String
+  amount     Float // Gross amount sent
+  fee        Float // 1% platform fee
+  netAmount  Float // Amount received (amount - fee)
+  createdAt  DateTime @default(now())
+}
+
+model KycRecord {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id])
+  firstName   String
+  lastName    String
+  dob         String
+  nationality String
+  idType      String
+  idFrontPath String
+  idBackPath  String
+  selfiePath  String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Otp {
+  id        Int      @id @default(autoincrement())
+  email     String
+  otp       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
